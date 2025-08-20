@@ -4,6 +4,7 @@ from .api.routes_generate import router as generate_router
 from .core.kafka import init_producer, shutdown_producer
 from .api.routes_generate import router as generate_router
 from .api.routes_progress import router as progress_router
+from .core.s3 import ensure_bucket
 
 app = FastAPI()
 
@@ -23,6 +24,7 @@ def health():
 @app.on_event("startup")
 async def _startup():
     await init_producer()
+    ensure_bucket()  # Ensure S3 bucket exists
 
 @app.on_event("shutdown")
 async def _shutdown():

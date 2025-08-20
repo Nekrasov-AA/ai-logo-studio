@@ -69,8 +69,16 @@ services:
     environment:
       - DATABASE_URL=postgresql+asyncpg://app:app@db:5432/appdb
       - KAFKA_BOOTSTRAP_SERVERS=kafka:9092
+      - S3_ENDPOINT_URL=http://localstack:4566
+      - AWS_REGION=eu-central-1
+      - AWS_ACCESS_KEY_ID=test
+      - AWS_SECRET_ACCESS_KEY=test
+      - S3_BUCKET=ai-logo-studio
+      - S3_PUBLIC_BASE=http://localhost:4566 # to open links in the browser
     restart: unless-stopped
     depends_on:
+      localstack:
+        condition: service_healthy
       db:
         condition: service_healthy
       kafka:
@@ -100,13 +108,20 @@ services:
     build: ./worker
     container_name: worker
     depends_on:
+      localstack:
+        condition: service_healthy
       kafka:
         condition: service_healthy
       db:
         condition: service_healthy
     environment:
-      - KAFKA_BOOTSTRAP_SERVERS=kafka:9092
-      - DATABASE_URL=postgresql+asyncpg://app:app@db:5432/appdb
+    - KAFKA_BOOTSTRAP_SERVERS=kafka:9092
+    - DATABASE_URL=postgresql+asyncpg://app:app@db:5432/appdb
+    - S3_ENDPOINT_URL=http://localstack:4566
+    - AWS_REGION=eu-central-1
+    - AWS_ACCESS_KEY_ID=test
+    - AWS_SECRET_ACCESS_KEY=test
+    - S3_BUCKET=ai-logo-studio
 
 volumes:
   db_data:
