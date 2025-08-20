@@ -68,6 +68,7 @@ services:
       - "8000:8000"
     environment:
       - DATABASE_URL=postgresql+asyncpg://app:app@db:5432/appdb
+      - KAFKA_BOOTSTRAP_SERVERS=kafka:9092
     restart: unless-stopped
     depends_on:
       db:
@@ -91,6 +92,18 @@ services:
     depends_on:
       backend:
         condition: service_healthy
+
+  worker:
+    build: ./worker
+    container_name: worker
+    depends_on:
+      kafka:
+        condition: service_healthy
+      db:
+        condition: service_healthy
+    environment:
+      - KAFKA_BOOTSTRAP_SERVERS=kafka:9092
+      - DATABASE_URL=postgresql+asyncpg://app:app@db:5432/appdb
 
 volumes:
   db_data:
