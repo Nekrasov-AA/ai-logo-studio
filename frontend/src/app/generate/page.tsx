@@ -11,6 +11,7 @@ export default function GeneratePage() {
   const [jobId, setJobId] = useState<string | null>(null);
   const [stage, setStage] = useState<Stage | null>(null);
   const [log, setLog] = useState<string[]>([]);
+  const [variants, setVariants] = useState<Array<{index:number; palette:any; svg:{url:string}}>>([]);
   const esRef = useRef<EventSource | null>(null);
 
   useEffect(() => {
@@ -48,6 +49,12 @@ export default function GeneratePage() {
         if (payload.stage) {
           setStage(payload.stage);
           setLog((l) => [...l, `stage: ${payload.stage}`]);
+          if (payload.stage === 'done') {
+            fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/result/${data.job_id}`)
+              .then(r => r.json())
+              .then(r => setVariants(r?.variants ?? []))
+              .catch(() => {});
+          }
           if (payload.stage === 'done' || payload.stage === 'error' || payload.stage === 'not_found') {
             es.close();
             esRef.current = null;
@@ -98,10 +105,27 @@ export default function GeneratePage() {
 
       <Progress stage={stage} />
 
+      {variants.length > 0 && (
+        <>
+          <h3 style={{margin: '12px 0'}}>Variants</h3>
+          <div style={{display:'grid', gap:12, gridTemplateColumns:'repeat(auto-fill, minmax(180px, 1fr))'}}>
+            {variants.map(v => (
+              <a key={v.index} href={v.svg.url} target="_blank" rel="noreferrer"
+                 style={{display:'block', border:'1px solid #eee', borderRadius:8, padding:8}}>
+                <div style={{fontSize:12, opacity:0.7, marginBottom:6}}>
+                  #{v.index} • {v.palette?.name ?? 'palette'}
+                </div>
+                <img src={v.svg.url} alt={`variant ${v.index}`} style={{width:'100%', height:160, objectFit:'contain'}} />
+              </a>
+            ))}
+          </div>
+        </>
+      )}
+
       <details open>
         <summary>Log</summary>
         <pre style={{background:'#f7f7f8', padding:12, borderRadius:8, whiteSpace:'pre-wrap'}}>
-{log.join('\n')}
+          {log.join('\n')}
         </pre>
       </details>
     </main>
