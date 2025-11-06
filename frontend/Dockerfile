@@ -1,8 +1,28 @@
-FROM node:20-alpine
+FROM node:18-alpine as build
+
 WORKDIR /app
+
+# Copy package files
 COPY package*.json ./
+
+# Install dependencies
 RUN npm ci
+
+# Copy source code
 COPY . .
-ENV NEXT_TELEMETRY_DISABLED=1
-EXPOSE 3000
-CMD ["npm","run","dev","--","-H","0.0.0.0","-p","3000"]
+
+# Build the application
+RUN npm run build
+
+# Production image
+FROM nginx:alpine
+
+# Copy built files from build stage
+COPY --from=build /app/dist /usr/share/nginx/html
+
+# Copy nginx configuration
+COPY nginx.conf /etc/nginx/conf.d/default.conf
+
+EXPOSE 80
+
+CMD ["nginx", "-g", "daemon off;"]
