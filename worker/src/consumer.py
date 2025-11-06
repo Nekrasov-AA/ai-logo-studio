@@ -7,6 +7,21 @@ import svgwrite
 import boto3
 from botocore.config import Config
 
+# Import AI modules
+try:
+    from .logo_ai import logo_ai
+    from .geometric_ai import geometric_ai
+    from .premium_engine import premium_engine
+    from .hybrid_ai import hybrid_ai
+    from .ai_visual_generator import ai_visual_generator
+    AI_ENABLED = True
+    HYBRID_AI_ENABLED = True
+    print("[worker] 🧠 Hybrid AI system with LLM integration loaded successfully")
+except ImportError as e:
+    print(f"[worker] Warning: AI modules not available ({e}), using fallback generation")
+    AI_ENABLED = False
+    HYBRID_AI_ENABLED = False
+
 # --- ENV ---
 KAFKA = os.getenv("KAFKA_BOOTSTRAP_SERVERS", "kafka:9092")
 DB_URL = os.getenv("DATABASE_URL", "postgresql+asyncpg://app:app@db:5432/appdb")
@@ -135,33 +150,140 @@ def upload_svg(key: str, content: bytes):
     s3 = s3_client()
     s3.put_object(Bucket=S3_BUCKET, Key=key, Body=content, ContentType="image/svg+xml")
 
-# --- Core processing ---
+# --- AI-powered processing ---
 async def process(payload: dict):
     job_id = payload["job_id"]
     business_type = payload.get("business_type", "business")
     prefs = payload.get("prefs", {})
 
-    print(f"[worker] processing job {job_id}", flush=True)
+    print(f"[worker] 🤖 AI processing job {job_id} for '{business_type}'", flush=True)
     await set_status(job_id, "generating")
-    await asyncio.sleep(0.3)
-
-    palettes = suggest_palettes(business_type, prefs)
+    
+    if HYBRID_AI_ENABLED:
+        # Hybrid AI-powered generation with LLM
+        print(f"[worker] 🧠 LLM-powered analysis of business: {business_type}", flush=True)
+        
+        # Step 1: Hybrid AI Business Analysis (LLM + Rules)
+        business_name = prefs.get('business_name', business_type.split(' - ')[0] if ' - ' in business_type else business_type)
+        business_description = prefs.get('description', f"A {business_type} business")
+        
+        # Use hybrid AI for deep analysis
+        ai_analysis = await hybrid_ai.analyze_brand_with_ai(
+            business_name, business_type, business_description
+        )
+        
+        print(f"[worker] 🔍 Hybrid analysis: industry={ai_analysis.get('industry_classification')}, concepts={len(ai_analysis.get('logo_concepts', []))}", flush=True)
+        
+        # Step 2: AI Color Generation with psychology
+        color_palettes = ai_analysis.get('color_palettes', [])
+        ai_palettes = []
+        
+        for i, palette_colors in enumerate(color_palettes[:3]):
+            ai_palettes.append({
+                "name": f"ai_palette_{i+1}",
+                "colors": palette_colors
+            })
+        
+        # Fallback if no AI palettes
+        if not ai_palettes:
+            ai_palettes = suggest_palettes(business_type, prefs)
+            
+        print(f"[worker] 🎨 Generated {len(ai_palettes)} AI-driven palettes", flush=True)
+        
+    elif AI_ENABLED:
+        # Standard AI-powered generation
+        print(f"[worker] 🧠 Analyzing business: {business_type}", flush=True)
+        
+        # Step 1: AI Business Analysis
+        business_name = prefs.get('business_name', business_type.split(' - ')[0] if ' - ' in business_type else business_type)
+        business_analysis = logo_ai.analyze_business(business_name, business_type, prefs)
+        
+        print(f"[worker] 📊 Analysis complete: industry={business_analysis.industry}, complexity={business_analysis.complexity:.2f}, styles={business_analysis.style_preferences}", flush=True)
+        
+        # Step 2: AI Color Generation
+        ai_palettes = logo_ai.generate_ai_palettes(business_analysis)
+        print(f"[worker] 🎨 Generated {len(ai_palettes)} AI palettes", flush=True)
+        
+    else:
+        # Fallback to simple generation
+        from .logo_ai import BusinessAnalysis
+        business_analysis = BusinessAnalysis(
+            industry='other',
+            keywords=[business_type.lower()],
+            complexity=0.5,
+            style_preferences=['modern'],
+            target_audience='general',
+            brand_personality=['professional'],
+            recommended_colors=[(0, 100, 200), (100, 100, 100)]
+        )
+        ai_palettes = suggest_palettes(business_type, prefs)
+        print(f"[worker] ⚠️ Using fallback generation", flush=True)
+    
     await set_status(job_id, "vectorizing")
-    await asyncio.sleep(0.3)
-
+    
+    # Step 3: AI Geometric Design
+    layout_styles = ["emblem", "symbol_text", "wordmark"]
     idx = 0
-    for p in palettes:
-        for layout in LAYOUTS:
-            svg_bytes = layout(business_type, p)
-            key = f"jobs/{job_id}/v{idx:02d}_{p['name']}.svg"
+    
+    for palette in ai_palettes[:3]:  # Top 3 palettes
+        for layout_style in layout_styles[:2]:  # Top 2 layouts per palette
+            
+            try:
+                if HYBRID_AI_ENABLED:
+                    # Hybrid AI-generated logo with LLM analysis + Visual AI
+                    business_name = prefs.get('business_name', business_type.split(' - ')[0] if ' - ' in business_type else business_type)
+                    business_description = prefs.get('description', f"A {business_type} business")
+                    
+                    svg_bytes = await ai_visual_generator.create_ai_powered_logo(
+                        business_name, business_type, business_description, palette, layout_style
+                    )
+                    variant_name = f"hybrid_ai_{layout_style}_{palette['name']}"
+                    
+                elif AI_ENABLED:
+                    # Premium AI-generated logo using advanced design engine
+                    business_name = prefs.get('business_name', business_type.split(' - ')[0] if ' - ' in business_type else business_type)
+                    svg_bytes = premium_engine.create_stunning_logo(
+                        business_name, business_analysis, palette, layout_style
+                    )
+                    variant_name = f"premium_{layout_style}_{palette['name']}"
+                else:
+                    # Fallback generation
+                    if idx < len(LAYOUTS):
+                        svg_bytes = LAYOUTS[idx % len(LAYOUTS)](business_type, palette)
+                    else:
+                        svg_bytes = LAYOUTS[0](business_type, palette)
+                    variant_name = f"fallback_{palette['name']}"
+                    
+            except Exception as e:
+                print(f"[worker] ⚠️ AI generation failed for variant {idx+1}: {e}", flush=True)
+                # Emergency fallback to simple generation
+                svg_bytes = LAYOUTS[0](business_type, palette)
+                variant_name = f"emergency_fallback_{palette['name']}"
+            
+            key = f"jobs/{job_id}/v{idx:02d}_{variant_name}.svg"
             upload_svg(key, svg_bytes)
-            await insert_variant(job_id, idx, p, key)
+            await insert_variant(job_id, idx, palette, key)
+            
+            print(f"[worker] ✨ Generated variant {idx+1}: {variant_name}", flush=True)
             idx += 1
+            
+            if idx >= 6:  # Limit to 6 variants
+                break
+        
+        if idx >= 6:
+            break
 
     await set_status(job_id, "exporting")
     await asyncio.sleep(0.2)
     await set_status(job_id, "done")
-    print(f"[worker] job {job_id} done, {idx} variants uploaded", flush=True)
+    
+    if HYBRID_AI_ENABLED:
+        ai_status = "� Hybrid AI-powered (LLM + Visual AI)"
+    elif AI_ENABLED:
+        ai_status = "🤖 AI-powered"
+    else:
+        ai_status = "📝 Template-based"
+    print(f"[worker] ✅ Job {job_id} complete! Generated {idx} {ai_status} logo variants", flush=True)
 
 async def main():
     print(f"[worker] starting; kafka={KAFKA} db={DB_URL}", flush=True)

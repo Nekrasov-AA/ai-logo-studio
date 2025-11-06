@@ -8,11 +8,15 @@ from ..core.kafka import get_producer
 from ..core.s3 import presigned_get_url
 from ..models.job import Job
 from ..schemas.job import JobCreate, JobCreated
+from ..core.metrics import track_logo_job_created, track_kafka_message_sent
 
 router = APIRouter(prefix="/api", tags=["generate"])
 
 @router.post("/generate", response_model=JobCreated)
 async def create_job(payload: JobCreate, session: AsyncSession = Depends(get_session)):
+    # Track metrics
+    track_logo_job_created()
+    
     job = Job(business_type=payload.business_type, prefs=payload.preferences, status="queued")
     session.add(job)
     await session.commit()
@@ -25,7 +29,12 @@ async def create_job(payload: JobCreate, session: AsyncSession = Depends(get_ses
         "prefs": job.prefs,
     }
     producer = get_producer()
-    await producer.send_and_wait("logo.requests", msg)
+    try:
+        await producer.send_and_wait("logo.requests", msg)
+        track_kafka_message_sent("logo.requests", success=True)
+    except Exception as e:
+        track_kafka_message_sent("logo.requests", success=False)
+        raise HTTPException(status_code=500, detail="Failed to queue job")
 
     return JobCreated(job_id=str(job.id), status=job.status)
 

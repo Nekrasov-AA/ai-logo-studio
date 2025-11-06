@@ -30,4 +30,12 @@ async def progress_stream(job_id: uuid.UUID):
                 if status in ("done", "error"):
                     break
                 await asyncio.sleep(0.5)
-    return StreamingResponse(event_gen(), media_type="text/event-stream")
+    return StreamingResponse(
+        event_gen(), 
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no"  # для nginx
+        }
+    )
