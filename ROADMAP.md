@@ -1,42 +1,42 @@
-# 🚀 План развития AI Logo Studio
+# 🚀 AI Logo Studio Development Plan
 
-## 📊 Текущее состояние
+## 📊 Current Status
 
-### ✅ Что работает:
-- **Полная инфраструктура**: Docker, Kafka, PostgreSQL, S3
-- **Backend API**: FastAPI с полным функционалом
-- **Базовый UI**: Формы и галерея (обновлен)
-- **Worker**: Простая генерация SVG логотипов
-- **Real-time updates**: SSE для отслеживания прогресса
+### ✅ What's Working:
+- **Full Infrastructure**: Docker, Kafka, PostgreSQL, S3
+- **Backend API**: FastAPI with complete functionality
+- **Basic UI**: Forms and gallery (updated)
+- **Worker**: Simple SVG logo generation
+- **Real-time updates**: SSE for progress tracking
 
-### ❌ Что нужно улучшить:
-- **LLM Integration**: Настоящий AI для генерации
-- **Дизайн-система**: Более продвинутые алгоритмы
-- **Персонализация**: Лучший анализ бизнеса
+### ❌ What Needs Improvement:
+- **LLM Integration**: Real AI for generation
+- **Design System**: More advanced algorithms
+- **Personalization**: Better business analysis
 
-## 🎯 План поэтапного развития
+## 🎯 Phased Development Plan
 
-### Этап 1: Улучшение UI ✅ ЗАВЕРШЕНО
-- [x] Современный дизайн с Tailwind CSS
-- [x] Профессиональная форма ввода
-- [x] Красивая галерея результатов
-- [x] Анимированный прогресс-бар
-- [x] Responsive дизайн
+### Phase 1: UI Improvements ✅ COMPLETED
+- [x] Modern design with Tailwind CSS
+- [x] Professional input forms
+- [x] Beautiful results gallery
+- [x] Animated progress bar
+- [x] Responsive design
 
-### Этап 2: Интеграция LLM (СЛЕДУЮЩИЙ)
+### Phase 2: LLM Integration (NEXT)
 
-#### Вариант A: OpenAI GPT-4 Vision + DALL-E
+#### Option A: OpenAI GPT-4 Vision + DALL-E
 ```python
-# Добавить в worker/requirements.txt
+# Add to worker/requirements.txt
 openai==1.3.0
 
-# Новый алгоритм генерации
+# New generation algorithm
 async def generate_with_openai(business_type: str, preferences: dict):
-    # 1. GPT-4 анализирует бизнес и создает описания
+    # 1. GPT-4 analyzes business and creates descriptions
     prompt = f"Create 3 logo concepts for {business_type}..."
     concepts = await openai_client.chat.completions.create(...)
     
-    # 2. DALL-E генерирует изображения
+    # 2. DALL-E generates images
     images = []
     for concept in concepts:
         image = await openai_client.images.generate(
@@ -46,24 +46,24 @@ async def generate_with_openai(business_type: str, preferences: dict):
         )
         images.append(image)
     
-    # 3. Конвертация в SVG через внешний сервис
+    # 3. Convert to SVG via external service
     return convert_to_svg(images)
 ```
 
-#### Вариант B: Stable Diffusion + ControlNet
+#### Option B: Stable Diffusion + ControlNet
 ```python
-# Локальная генерация с контролем
+# Local generation with control
 from diffusers import StableDiffusionPipeline, ControlNetModel
 
 def generate_with_stable_diffusion(business_type: str, style: str):
-    # Более детальный контроль над генерацией
-    # Работает оффлайн
-    # Полная кастомизация
+    # More detailed control over generation
+    # Works offline
+    # Full customization
 ```
 
-#### Вариант C: Гибридный подход (РЕКОМЕНДУЕМЫЙ)
+#### Option C: Hybrid Approach (RECOMMENDED)
 ```python
-# Комбинация правил + LLM для текста + векторная генерация
+# Combination of rules + LLM for text + vector generation
 
 class LogoGenerator:
     def __init__(self):
@@ -71,13 +71,13 @@ class LogoGenerator:
         self.design_rules = DesignRuleEngine()
     
     async def generate_concepts(self, business_type: str, preferences: dict):
-        # 1. LLM создает концепции и описания
+        # 1. LLM creates concepts and descriptions
         concepts = await self.analyze_business_with_llm(business_type, preferences)
         
-        # 2. Правила дизайна определяют визуальные элементы
+        # 2. Design rules determine visual elements
         design_elements = self.design_rules.get_elements(concepts)
         
-        # 3. Векторная генерация создает SVG
+        # 3. Vector generation creates SVG
         logos = []
         for concept, elements in zip(concepts, design_elements):
             logo = self.generate_vector_logo(concept, elements)
@@ -86,17 +86,17 @@ class LogoGenerator:
         return logos
 ```
 
-### Этап 3: Продвинутая генерация
+### Phase 3: Advanced Generation
 
-#### A. Семантический анализ бизнеса
+#### A. Business Semantic Analysis
 ```python
 class BusinessAnalyzer:
     def analyze(self, business_type: str, description: str):
-        # Определение:
-        # - Индустрии и конкурентов
-        # - Целевой аудитории
-        # - Подходящих символов и метафор
-        # - Цветовой психологии
+        # Determine:
+        # - Industry and competitors
+        # - Target audience
+        # - Appropriate symbols and metaphors
+        # - Color psychology
         # - Стилевых предпочтений
         
         return {

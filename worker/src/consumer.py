@@ -1,4 +1,4 @@
-import asyncio, json, os, uuid, sys, math
+import asyncio, json, os, uuid, sys
 from typing import List, Dict
 from aiokafka import AIOKafkaConsumer
 from sqlalchemy.ext.asyncio import create_async_engine
@@ -9,6 +9,13 @@ from botocore.config import Config
 
 # Import AI modules
 try:
+    # New AI Image Generator system
+    from .ai_logo_generator_integration import ai_logo_generator
+    from .ai_engines import GenerationStyle, ProcessingOptions, ProcessingLevel
+    NEW_AI_ENABLED = True
+    print("[worker] 🚀 New AI Image Generator system loaded successfully")
+    
+    # Legacy AI modules (fallback)
     from .logo_ai import logo_ai
     from .geometric_ai import geometric_ai
     from .premium_engine import premium_engine
@@ -16,9 +23,10 @@ try:
     from .ai_visual_generator import ai_visual_generator
     AI_ENABLED = True
     HYBRID_AI_ENABLED = True
-    print("[worker] 🧠 Hybrid AI system with LLM integration loaded successfully")
+    print("[worker] 🧠 Legacy AI system also available as fallback")
 except ImportError as e:
     print(f"[worker] Warning: AI modules not available ({e}), using fallback generation")
+    NEW_AI_ENABLED = False
     AI_ENABLED = False
     HYBRID_AI_ENABLED = False
 
@@ -150,13 +158,177 @@ def upload_svg(key: str, content: bytes):
     s3 = s3_client()
     s3.put_object(Bucket=S3_BUCKET, Key=key, Body=content, ContentType="image/svg+xml")
 
-# --- AI-powered processing ---
-async def process(payload: dict):
+# --- Helper functions ---
+def determine_industry(business_type: str) -> str:
+    """Determine industry from business type."""
+    bt_lower = business_type.lower()
+    if any(word in bt_lower for word in ['tech', 'software', 'ai', 'digital', 'data']):
+        return 'technology'
+    elif any(word in bt_lower for word in ['health', 'medical', 'care', 'clinic', 'hospital']):
+        return 'healthcare'
+    elif any(word in bt_lower for word in ['finance', 'bank', 'investment', 'trading']):
+        return 'finance'
+    elif any(word in bt_lower for word in ['food', 'restaurant', 'cafe', 'culinary']):
+        return 'food'
+    elif any(word in bt_lower for word in ['design', 'creative', 'art', 'agency']):
+        return 'creative'
+    elif any(word in bt_lower for word in ['retail', 'shop', 'store', 'fashion']):
+        return 'retail'
+    elif any(word in bt_lower for word in ['education', 'school', 'university', 'learning']):
+        return 'education'
+    elif any(word in bt_lower for word in ['consulting', 'advisory', 'strategy']):
+        return 'consulting'
+    else:
+        return 'other'
+
+def map_style_preference(style_pref: str) -> 'GenerationStyle':
+    """Map user style preference to GenerationStyle enum."""
+    if not NEW_AI_ENABLED:
+        return None
+        
+    style_mapping = {
+        'minimal': GenerationStyle.MINIMALIST,
+        'minimalist': GenerationStyle.MINIMALIST,
+        'modern': GenerationStyle.MODERN,
+        'contemporary': GenerationStyle.MODERN,
+        'classic': GenerationStyle.CLASSIC,
+        'traditional': GenerationStyle.CLASSIC,
+        'playful': GenerationStyle.PLAYFUL,
+        'fun': GenerationStyle.PLAYFUL,
+        'bold': GenerationStyle.BOLD,
+        'strong': GenerationStyle.BOLD,
+        'elegant': GenerationStyle.ELEGANT,
+        'sophisticated': GenerationStyle.ELEGANT,
+        'tech': GenerationStyle.TECH,
+        'technology': GenerationStyle.TECH,
+        'organic': GenerationStyle.ORGANIC,
+        'natural': GenerationStyle.ORGANIC
+    }
+    
+    return style_mapping.get(style_pref.lower(), GenerationStyle.MODERN)
+
+def extract_palette_from_variant(variant: Dict) -> Dict:
+    """Extract palette from AI variant result."""
+    # Try to get colors from AI analysis or use defaults
+    default_colors = ["#0066CC", "#4D9EE8", "#B3D9FF", "#333333"]
+    
+    # If we have style info, try to extract colors
+    style_info = variant.get('style_info', {})
+    color_prefs = style_info.get('color_preferences', [])
+    
+    if color_prefs:
+        # Pad with defaults if needed
+        colors = color_prefs + default_colors
+        colors = colors[:4]  # Take first 4
+    else:
+        colors = default_colors
+    
+    return {
+        "name": f"ai_generated_{variant.get('variant_id', 'unknown')}",
+        "colors": colors
+    }
+
+# --- NEW AI-powered processing ---
+async def process_with_new_ai(payload: dict):
+    """Process using new AI Image Generator system."""
     job_id = payload["job_id"]
     business_type = payload.get("business_type", "business")
     prefs = payload.get("prefs", {})
 
-    print(f"[worker] 🤖 AI processing job {job_id} for '{business_type}'", flush=True)
+    print(f"[worker] 🚀 NEW AI processing job {job_id} for '{business_type}'", flush=True)
+    await set_status(job_id, "generating")
+    
+    try:
+        # Initialize AI system if not already done
+        if not ai_logo_generator.is_initialized:
+            print(f"[worker] 🔧 Initializing AI Logo Generator...", flush=True)
+            success = await ai_logo_generator.initialize()
+            if not success:
+                print(f"[worker] ❌ Failed to initialize AI system, falling back to legacy", flush=True)
+                return await process_legacy(payload)
+        
+        # Extract parameters
+        business_name = prefs.get('business_name', business_type.split(' - ')[0] if ' - ' in business_type else business_type)
+        description = prefs.get('description', f"A {business_type} business")
+        industry = determine_industry(business_type)
+        style = map_style_preference(prefs.get('style', 'modern'))
+        color_preferences = prefs.get('colors', [])
+        
+        print(f"[worker] 🎯 Parameters: name='{business_name}', industry={industry}, style={style.value if style else 'modern'}", flush=True)
+        
+        # Configure processing options based on industry
+        processing_options = ProcessingOptions(
+            remove_background=True,
+            enhance_contrast=True,
+            sharpen_edges=True,
+            normalize_colors=True,
+            optimize_for_vector=True,
+            processing_level=ProcessingLevel.STANDARD
+        )
+        
+        await set_status(job_id, "ai_generating")
+        
+        # Generate AI logo variants
+        variants = await ai_logo_generator.generate_logo_variants(
+            business_name=business_name,
+            business_type=business_type,
+            industry=industry,
+            description=description,
+            style=style,
+            color_preferences=color_preferences,
+            brand_personality=prefs.get('personality', ['professional', 'trustworthy']),
+            target_audience=prefs.get('target_audience', 'businesses'),
+            count=3,
+            processing_options=processing_options
+        )
+        
+        print(f"[worker] ✨ Generated {len(variants)} AI logo variants", flush=True)
+        
+        await set_status(job_id, "vectorizing")
+        
+        # Save variants to S3
+        for i, variant in enumerate(variants):
+            # Use processed image if available, otherwise use AI result
+            image_data = (variant.get("processed_result", {}).get("processed_image") or 
+                         variant["ai_result"]["image_data"])
+            
+            provider = variant["ai_result"]["provider"]
+            key = f"jobs/{job_id}/v{i:02d}_ai_{provider}.png"
+            
+            # Upload to S3
+            s3 = s3_client()
+            s3.put_object(
+                Bucket=S3_BUCKET, 
+                Key=key, 
+                Body=image_data, 
+                ContentType="image/png"
+            )
+            
+            # Extract palette and save to database
+            palette = extract_palette_from_variant(variant)
+            await insert_variant(job_id, i, palette, key)
+            
+            print(f"[worker] 💾 Saved variant {i+1}: {key} ({provider})", flush=True)
+        
+        await set_status(job_id, "exporting")
+        await asyncio.sleep(0.2)
+        await set_status(job_id, "done")
+        
+        print(f"[worker] ✅ Job {job_id} completed with NEW AI system! Generated {len(variants)} variants", flush=True)
+        
+    except Exception as e:
+        print(f"[worker] ❌ NEW AI processing failed: {e}, falling back to legacy", flush=True)
+        # Fallback to legacy system
+        return await process_legacy(payload)
+
+# --- LEGACY AI-powered processing ---
+async def process_legacy(payload: dict):
+    """Legacy processing function (renamed from process)."""
+    job_id = payload["job_id"]
+    business_type = payload.get("business_type", "business")
+    prefs = payload.get("prefs", {})
+
+    print(f"[worker] 🤖 LEGACY AI processing job {job_id} for '{business_type}'", flush=True)
     await set_status(job_id, "generating")
     
     if HYBRID_AI_ENABLED:
@@ -285,8 +457,31 @@ async def process(payload: dict):
         ai_status = "📝 Template-based"
     print(f"[worker] ✅ Job {job_id} complete! Generated {idx} {ai_status} logo variants", flush=True)
 
+# --- MAIN PROCESSING FUNCTION ---
+async def process(payload: dict):
+    """Main processing function - routes to new AI or legacy system."""
+    
+    # Check if new AI system should be used
+    use_new_ai = NEW_AI_ENABLED and os.getenv("USE_NEW_AI", "true").lower() == "true"
+    
+    if use_new_ai:
+        print(f"[worker] 🚀 Using NEW AI Image Generator system", flush=True)
+        await process_with_new_ai(payload)
+    else:
+        print(f"[worker] 🤖 Using LEGACY AI system", flush=True)
+        await process_legacy(payload)
+
 async def main():
     print(f"[worker] starting; kafka={KAFKA} db={DB_URL}", flush=True)
+    
+    # Print AI system status
+    if NEW_AI_ENABLED:
+        print(f"[worker] 🚀 NEW AI Image Generator: AVAILABLE", flush=True)
+    if AI_ENABLED:
+        print(f"[worker] 🤖 Legacy AI system: AVAILABLE", flush=True)
+    if not NEW_AI_ENABLED and not AI_ENABLED:
+        print(f"[worker] ⚠️  No AI systems available, using basic fallback", flush=True)
+    
     consumer = AIOKafkaConsumer(
         "logo.requests",
         bootstrap_servers=KAFKA,

@@ -3,7 +3,7 @@ import Header from '@/components/Header';
 import WelcomeScreen from '@/components/WelcomeScreen';
 import LogoForm from '@/components/LogoForm';
 import ResultsScreen from '@/components/ResultsScreen';
-import { FormData, LogoVariant, JobProgress } from '@/types/logo';
+import { FormData, LogoVariant, JobProgress, JobStatus } from '@/types/logo';
 import { useToast } from '@/hooks/use-toast';
 
 type AppState = 'welcome' | 'form' | 'results';
@@ -250,7 +250,7 @@ const Index = () => {
                 };
                 
                 setProgress({
-                  status: result.status as any,
+                  status: result.status as JobStatus,
                   progress: progressMap[result.status] || 0,
                   message: result.status === 'generating' 
                     ? `Creating ${formData.style} logos for ${formData.businessName}...`

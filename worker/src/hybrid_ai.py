@@ -28,11 +28,13 @@ class HybridLogoAI:
         if self.use_llm:
             try:
                 import openai
+                # Use simple initialization without extra parameters
                 self.client = openai.OpenAI(api_key=self.openai_api_key)
                 print("[HybridAI] ✅ LLM integration active")
             except Exception as e:
                 print(f"[HybridAI] ⚠️ LLM init failed: {e}")
                 self.use_llm = False
+                self.client = None
         else:
             print("[HybridAI] 📝 Using enhanced rule-based analysis")
         

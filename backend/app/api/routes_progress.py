@@ -1,9 +1,8 @@
 import asyncio, json, uuid
-from fastapi import APIRouter, Response
+from fastapi import APIRouter
 from starlette.responses import StreamingResponse
-from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
-from ..core.db import get_session, SessionLocal
+from ..core.db import SessionLocal
 from ..models.job import Job
 
 router = APIRouter(prefix="/api", tags=["progress"])
@@ -14,7 +13,7 @@ def sse_event(data: dict) -> bytes:
 @router.get("/progress/{job_id}")
 async def progress_stream(job_id: uuid.UUID):
     async def event_gen():
-        # отдельная сессия, чтобы не зависеть от DI
+        # separate session to avoid dependency on DI
         async with SessionLocal() as session:
             last = None
             while True:

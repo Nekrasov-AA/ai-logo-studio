@@ -143,7 +143,7 @@ services:
       - AI_FALLBACK_ENABLED=${AI_FALLBACK_ENABLED:-true}
       - AI_TIMEOUT=${AI_TIMEOUT:-30}
 
-  # Monitoring Stack для портфолио
+  # Monitoring Stack for portfolio
   prometheus:
     image: prom/prometheus:v2.40.0
     container_name: prometheus

@@ -12,6 +12,6 @@ class Settings(BaseSettings):
     S3_PUBLIC_BASE: str = "http://localhost:4566"
 
     class Config:
-        env_file = ".env"  # на будущее; сейчас берём из переменной окружения
+        env_file = ".env"  # for future use; currently taking from environment variable
 
 settings = Settings()
