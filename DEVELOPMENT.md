@@ -2,7 +2,7 @@
 
 This document describes the development tools and linting setup for the project.
 
-## Python (Backend & Worker)
+## Python (Backend)
 
 ### Linting and Code Quality Tools
 
@@ -15,7 +15,7 @@ This document describes the development tools and linting setup for the project.
 
 ### Configuration
 
-Each Python service (backend/, worker/) has its own `pyproject.toml` with:
+The backend/ service has its own `pyproject.toml` with:
 - Black formatting rules
 - isort import organization
 - mypy type checking configuration
@@ -25,21 +25,12 @@ Each Python service (backend/, worker/) has its own `pyproject.toml` with:
 ### Usage
 
 ```bash
-# Backend
 cd backend/
 black app/
 isort app/
 flake8 app/
 mypy app/
 pylint app/
-
-# Worker  
-cd worker/
-black src/
-isort src/
-flake8 src/
-mypy src/
-pylint src/
 ```
 
 ## Frontend (TypeScript/React)
@@ -105,4 +96,4 @@ Recommended extensions:
 
 ## Docker Integration
 
-Linting tools are included in requirements.txt for each service, so they're available in containers for CI/CD pipelines.
+Linting tools are included in requirements.txt for the backend service, so they're available in containers for CI/CD pipelines.
