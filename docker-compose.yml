@@ -58,7 +58,7 @@ services:
       - kafka
 
   localstack:
-    image: localstack/localstack:latest
+    image: localstack/localstack:3.8
     container_name: localstack
     environment:
       - SERVICES=s3

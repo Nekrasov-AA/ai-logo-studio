@@ -1,18 +1,18 @@
 """
-Logo Generator — шаблонный движок на основе Tabler Icons (MIT) + Google Fonts.
+Logo Generator — шаблонный движок: Tabler Icons (MIT) + OFL шрифты.
 
 Заменяет: worker/src/premium_engine.py, hybrid_ai.py, ai_visual_generator.py,
-          logo_ai.py, geometric_ai.py (старые файлы НЕ удалены, просто не
-          используются).
+          logo_ai.py, geometric_ai.py (старые файлы НЕ удалены).
 
 Принципы:
-- Полностью детерминированный: одни и те же входные данные → одинаковый SVG
+- SVG полностью самодостаточен: нет <text>, нет @import — только <path>
+- Текст конвертируется в контуры букв через fontTools (OFL шрифты)
+- Детерминированный: одни и те же входные данные → одинаковый SVG
 - Синхронный, без внешних API-вызовов
-- 4 варианта на запрос (разные иконка / шрифт / палитра / компоновка)
-- Иконки: curated subset из Tabler Icons (MIT)
-  https://github.com/tabler/tabler-icons
-- Шрифты: Google Fonts (загружаются браузером через @import в SVG)
-- Палитры: HSL-алгебра (комплементарные / аналоговые / монохромные)
+
+Шрифты лежат в backend/app/assets/fonts/ (скачать: python scripts/download_fonts.py)
+Лицензии шрифтов: SIL Open Font License 1.1 — допускает встраивание в продукты.
+Иконки: Tabler Icons (MIT) — https://github.com/tabler/tabler-icons
 """
 from __future__ import annotations
 
@@ -20,7 +20,112 @@ import colorsys
 import hashlib
 import random
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Dict, List, Optional, Tuple
+
+from fontTools.pens.svgPathPen import SVGPathPen
+from fontTools.ttLib import TTFont
+
+# ---------------------------------------------------------------------------
+# Font infrastructure
+# ---------------------------------------------------------------------------
+
+_FONTS_DIR = Path(__file__).parent.parent / "assets" / "fonts"
+_font_cache: Dict[str, TTFont] = {}
+
+
+def _load_font(filename: str) -> TTFont:
+    if filename not in _font_cache:
+        path = _FONTS_DIR / filename
+        if not path.exists():
+            raise FileNotFoundError(
+                f"Font not found: {path}\n"
+                "Run: cd backend && python scripts/download_fonts.py"
+            )
+        _font_cache[filename] = TTFont(str(path))
+    return _font_cache[filename]
+
+
+def preload_fonts() -> None:
+    """Load all font files into cache. Call once at app startup to avoid
+    first-request latency."""
+    for pair in _FONT_PAIRS:
+        _load_font(pair.heading_file)
+        _load_font(pair.body_file)
+
+
+def _text_width(
+    text: str,
+    font: TTFont,
+    size: float,
+    spacing: float = 0.0,
+) -> float:
+    """Total advance width of ``text`` in SVG px, including inter-glyph spacing."""
+    glyph_set = font.getGlyphSet()
+    cmap = font.getBestCmap()
+    upm = font["head"].unitsPerEm
+    scale = size / upm
+    total = 0.0
+    n_visible = 0
+    for ch in text:
+        cp = ord(ch)
+        if cp == 0x20:
+            total += size * 0.25
+        elif cp in cmap and cmap[cp] in glyph_set:
+            total += glyph_set[cmap[cp]].width * scale
+        else:
+            total += size * 0.35
+        n_visible += 1
+    if n_visible > 1:
+        total += spacing * (n_visible - 1)
+    return total
+
+
+def _text_to_paths(
+    text: str,
+    font: TTFont,
+    size: float,
+    x: float,
+    y_baseline: float,
+    fill: str,
+    spacing: float = 0.0,
+) -> str:
+    """
+    Convert ``text`` to a series of SVG <path> elements.
+
+    Font coordinate system has Y going up; SVG has Y going down.
+    The per-glyph transform ``translate(x, y_baseline) scale(s, -s)``
+    handles the flip: ascenders land above y_baseline, descenders below.
+    """
+    glyph_set = font.getGlyphSet()
+    cmap = font.getBestCmap()
+    upm = font["head"].unitsPerEm
+    scale = size / upm
+    parts: List[str] = []
+    cur_x = x
+
+    for ch in text:
+        cp = ord(ch)
+        if cp == 0x20:
+            cur_x += size * 0.25 + spacing
+            continue
+        glyph_name = cmap.get(cp)
+        if not glyph_name or glyph_name not in glyph_set:
+            cur_x += size * 0.35 + spacing
+            continue
+        glyph = glyph_set[glyph_name]
+        pen = SVGPathPen(glyph_set)
+        glyph.draw(pen)
+        d = pen.getCommands()
+        if d:
+            parts.append(
+                f'<path transform="translate({cur_x:.2f},{y_baseline:.2f})'
+                f' scale({scale:.5f},{-scale:.5f})"'
+                f' d="{d}" fill="{fill}"/>'
+            )
+        cur_x += glyph.width * scale + spacing
+
+    return "\n".join(parts)
 
 
 # ---------------------------------------------------------------------------
@@ -38,10 +143,19 @@ class LogoVariant:
     layout: str         # "centered" | "horizontal" | "badge"
 
 
+@dataclass
+class _FontPair:
+    heading: str       # display name for metadata
+    body: str
+    style_tag: str
+    heading_file: str  # filename inside assets/fonts/
+    body_file: str
+
+
 # ---------------------------------------------------------------------------
 # Tabler Icons — curated SVG inner markup (MIT License)
 # Source: https://github.com/tabler/tabler-icons
-# viewBox 0 0 24 24, stroke-based, fill=none unless noted.
+# viewBox 0 0 24 24, stroke-based (fill=none), unless explicitly noted.
 # Elements inherit stroke="currentColor" stroke-width="2" from parent <g>.
 # ---------------------------------------------------------------------------
 
@@ -178,7 +292,8 @@ _ICONS: Dict[str, str] = {
 
     # ---- creative ----
     "palette": (
-        '<path d="M12 21a9 9 0 1 1 0-18 9 9 0 0 1 9 9c0 2.5-2 3-3 3a1.5 1.5 0 0 1-1.5-1.5 1.5 1.5 0 0 0-1.5-1.5H12a3 3 0 0 1-3-3 6 6 0 0 1 1.8-4.3"/>'
+        '<path d="M12 21a9 9 0 1 1 0-18 9 9 0 0 1 9 9c0 2.5-2 3-3 3a1.5 1.5 0 0 1-1.5-1.5'
+        ' 1.5 1.5 0 0 0-1.5-1.5H12a3 3 0 0 1-3-3 6 6 0 0 1 1.8-4.3"/>'
         '<circle cx="8.5" cy="10.5" r="1" fill="currentColor" stroke="none"/>'
         '<circle cx="12.5" cy="8" r="1" fill="currentColor" stroke="none"/>'
         '<circle cx="16" cy="11" r="1" fill="currentColor" stroke="none"/>'
@@ -192,7 +307,9 @@ _ICONS: Dict[str, str] = {
         '<circle cx="6" cy="18" r="2"/>'
     ),
     "stars": (
-        '<path d="M17.8 19.2L16 11l3.5-3.5C21 6 21.5 4 21 3c-1-.5-3 0-4.5 1.5L13 8 4.8 6.2c-.5-.1-.9.1-1.1.5l-.3.5c-.2.5-.1 1 .3 1.3L9 12l-2 3H4l-1 1 3 2 2 3 1-1v-3l3-2 3.5 5.3c.3.4.8.5 1.3.3l.5-.2c.4-.3.6-.7.5-1.2z"/>'
+        '<path d="M17.8 19.2L16 11l3.5-3.5C21 6 21.5 4 21 3c-1-.5-3 0-4.5 1.5L13 8 4.8 6.2'
+        'c-.5-.1-.9.1-1.1.5l-.3.5c-.2.5-.1 1 .3 1.3L9 12l-2 3H4l-1 1 3 2 2 3 1-1v-3l3-2'
+        ' 3.5 5.3c.3.4.8.5 1.3.3l.5-.2c.4-.3.6-.7.5-1.2z"/>'
     ),
     "wand": (
         '<path d="M6 21L21 6l-3-3L3 18l3 3"/>'
@@ -238,7 +355,6 @@ _ICONS: Dict[str, str] = {
         '<path d="M7 3a1 1 0 0 0-1 1v5a1 1 0 0 0 1 1h2a1 1 0 0 0 1-1V4a1 1 0 0 0-1-1H7z"/>'
         '<path d="M12 10l5 5"/>'
         '<path d="M3 21h18"/>'
-        '<path d="M6 18h.01"/>'
         '<path d="M12 10a4 4 0 1 0 5.66 5.66"/>'
     ),
     "award": (
@@ -281,6 +397,43 @@ _ICONS: Dict[str, str] = {
         '<polyline points="8 16 12 10 16 13"/>'
     ),
 
+    # ---- fitness / sport ----
+    "run": (
+        '<circle cx="14" cy="4.5" r="1.5" fill="currentColor" stroke="none"/>'
+        '<path d="M4.5 17.5l4.5-1.5 2-4"/>'
+        '<path d="M15.5 20.5l-1-5.5-2-2.5 1.5-5.5"/>'
+        '<path d="M7.5 13l2-4 4.5-0.5 4 2.5 3 0.5"/>'
+    ),
+    "trophy": (
+        '<line x1="8" y1="21" x2="16" y2="21"/>'
+        '<line x1="12" y1="17" x2="12" y2="21"/>'
+        '<path d="M7 4h10l-1 7a5 5 0 0 1-8 0z"/>'
+        '<path d="M5 9H3"/>'
+        '<path d="M19 9h2"/>'
+    ),
+    "medal": (
+        '<circle cx="12" cy="15" r="5"/>'
+        '<path d="M8.5 7.5l-2.5-4.5h12l-2.5 4.5"/>'
+        '<path d="M8.5 7.5q3.5 3 7 0"/>'
+    ),
+    "dumbbell": (
+        '<circle cx="6" cy="7" r="2" fill="currentColor" stroke="none"/>'
+        '<circle cx="6" cy="17" r="2" fill="currentColor" stroke="none"/>'
+        '<circle cx="18" cy="7" r="2" fill="currentColor" stroke="none"/>'
+        '<circle cx="18" cy="17" r="2" fill="currentColor" stroke="none"/>'
+        '<line x1="6" y1="9" x2="6" y2="15"/>'
+        '<line x1="18" y1="9" x2="18" y2="15"/>'
+        '<line x1="7" y1="12" x2="17" y2="12"/>'
+    ),
+    "bike": (
+        '<circle cx="5" cy="17" r="3"/>'
+        '<circle cx="19" cy="17" r="3"/>'
+        '<polyline points="5 17 11 9 11 17"/>'
+        '<polyline points="11 9 16 9 19 17"/>'
+        '<line x1="13" y1="6" x2="16" y2="9"/>'
+        '<line x1="11" y1="6" x2="15" y2="6"/>'
+    ),
+
     # ---- general / other ----
     "star": (
         '<polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 '
@@ -288,15 +441,18 @@ _ICONS: Dict[str, str] = {
         ' fill="currentColor" stroke="none"/>'
     ),
     "diamond": (
-        '<path d="M2.7 10.3a2.41 2.41 0 0 0 0 3.41l7.56 7.57a2.41 2.41 0 0 0 3.4 0l7.57-7.57a2.41 2.41 0 0 0 0-3.41L13.66 2.72a2.41 2.41 0 0 0-3.41 0L2.7 10.3z"/>'
+        '<path d="M2.7 10.3a2.41 2.41 0 0 0 0 3.41l7.56 7.57a2.41 2.41 0 0 0 3.4 0'
+        'l7.57-7.57a2.41 2.41 0 0 0 0-3.41L13.66 2.72a2.41 2.41 0 0 0-3.41 0L2.7 10.3z"/>'
     ),
     "crown": (
         '<path d="M3 19l3-8 5.5 5 2.5-9 2.5 9 5.5-5 3 8H3z"/>'
         '<line x1="3" y1="19" x2="21" y2="19"/>'
     ),
     "rocket": (
-        '<path d="M4.5 16.5c-1.5 1.26-2 5-2 5s3.74-.5 5-2c.71-.84.7-2.13-.09-2.91a2.18 2.18 0 0 0-2.91-.09z"/>'
-        '<path d="M12 15l-3-3a22 22 0 0 1 2-3.95A12.88 12.88 0 0 1 22 2c0 2.72-.78 7.5-6 11a22.35 22.35 0 0 1-4 2z"/>'
+        '<path d="M4.5 16.5c-1.5 1.26-2 5-2 5s3.74-.5 5-2c.71-.84.7-2.13-.09-2.91'
+        'a2.18 2.18 0 0 0-2.91-.09z"/>'
+        '<path d="M12 15l-3-3a22 22 0 0 1 2-3.95A12.88 12.88 0 0 1 22 2c0 2.72-.78 7.5-6 11'
+        'a22.35 22.35 0 0 1-4 2z"/>'
         '<path d="M9 12H4s.55-3.03 2-4c1.62-1.08 5 0 5 0"/>'
         '<path d="M12 15v5s3.03-.55 4-2c1.08-1.62 0-5 0-5"/>'
     ),
@@ -309,9 +465,8 @@ _ICONS: Dict[str, str] = {
     ),
 }
 
-
 # ---------------------------------------------------------------------------
-# Industry → icon pool  (min 5 per industry for variety across companies)
+# Industry → icon pool
 # ---------------------------------------------------------------------------
 
 _INDUSTRY_ICONS: Dict[str, List[str]] = {
@@ -321,64 +476,64 @@ _INDUSTRY_ICONS: Dict[str, List[str]] = {
     "food":       ["chef-hat", "coffee", "salad", "pizza", "apple"],
     "creative":   ["palette", "pencil", "brush", "stars", "wand"],
     "retail":     ["shopping-bag", "tag", "hanger", "shirt", "package"],
+    "fitness":    ["run", "trophy", "medal", "dumbbell", "bike"],
     "education":  ["book-open", "school", "microscope", "award", "graduation-cap"],
     "consulting": ["briefcase", "target", "users", "presentation", "chart-dots"],
     "other":      ["star", "diamond", "crown", "rocket", "globe"],
 }
 
-
 # ---------------------------------------------------------------------------
-# Google Fonts — curated pairs
+# Google Fonts pairs — OFL licensed, files in assets/fonts/
 # ---------------------------------------------------------------------------
-
-@dataclass
-class _FontPair:
-    heading: str
-    body: str
-    style_tag: str   # matches prefs["style"] values
-    import_url: str
-
 
 _FONT_PAIRS: List[_FontPair] = [
     _FontPair(
         heading="Montserrat", body="Open Sans",
         style_tag="modern",
-        import_url="https://fonts.googleapis.com/css2?family=Montserrat:wght@600;700&family=Open+Sans:wght@400&display=swap",
+        heading_file="Montserrat-SemiBold.woff2",
+        body_file="OpenSans-Regular.woff2",
     ),
     _FontPair(
         heading="Playfair Display", body="Lato",
         style_tag="classic",
-        import_url="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@700&family=Lato:wght@400&display=swap",
+        heading_file="PlayfairDisplay-Bold.woff2",
+        body_file="Lato-Regular.ttf",
     ),
     _FontPair(
         heading="DM Sans", body="DM Mono",
         style_tag="minimal",
-        import_url="https://fonts.googleapis.com/css2?family=DM+Sans:wght@600&family=DM+Mono:wght@400&display=swap",
+        heading_file="DMSans-SemiBold.woff2",
+        body_file="DMMono-Regular.woff2",
     ),
     _FontPair(
         heading="Nunito", body="Nunito",
         style_tag="playful",
-        import_url="https://fonts.googleapis.com/css2?family=Nunito:wght@700;400&display=swap",
+        heading_file="Nunito-Bold.woff2",
+        body_file="Nunito-Bold.woff2",
     ),
     _FontPair(
         heading="Oswald", body="Source Sans 3",
         style_tag="bold",
-        import_url="https://fonts.googleapis.com/css2?family=Oswald:wght@600&family=Source+Sans+3:wght@400&display=swap",
+        heading_file="Oswald-SemiBold.woff2",
+        body_file="SourceSans3-Regular.woff2",
     ),
     _FontPair(
         heading="Cormorant Garamond", body="Jost",
         style_tag="elegant",
-        import_url="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@600&family=Jost:wght@300&display=swap",
+        heading_file="CormorantGaramond-SemiBold.woff2",
+        body_file="Jost-Light.woff2",
     ),
     _FontPair(
         heading="Space Grotesk", body="Inter",
         style_tag="tech",
-        import_url="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@600&family=Inter:wght@400&display=swap",
+        heading_file="SpaceGrotesk-SemiBold.woff2",
+        body_file="Inter-Regular.woff2",
     ),
     _FontPair(
         heading="Raleway", body="Mulish",
         style_tag="geometric",
-        import_url="https://fonts.googleapis.com/css2?family=Raleway:wght@700&family=Mulish:wght@300&display=swap",
+        heading_file="Raleway-Bold.woff2",
+        body_file="Mulish-Light.woff2",
     ),
 ]
 
@@ -393,14 +548,14 @@ _PREF_STYLE_MAP: Dict[str, str] = {
     "geometric": "geometric",
 }
 
-
 # ---------------------------------------------------------------------------
 # Color utilities
 # ---------------------------------------------------------------------------
 
+
 def _hex_to_hsl(hex_color: str) -> Tuple[float, float, float]:
     h_str = hex_color.lstrip("#")
-    r, g, b = (int(h_str[i:i + 2], 16) / 255.0 for i in (0, 2, 4))
+    r, g, b = (int(h_str[i: i + 2], 16) / 255.0 for i in (0, 2, 4))
     h, l, s = colorsys.rgb_to_hls(r, g, b)
     return h, s, l
 
@@ -413,7 +568,6 @@ def _hsl_to_hex(h: float, s: float, l: float) -> str:
     return "#{:02x}{:02x}{:02x}".format(round(r * 255), round(g * 255), round(b * 255))
 
 
-# Default base color per industry (used when user provides no color preference)
 _INDUSTRY_BASE_COLORS: Dict[str, str] = {
     "tech":       "#2563eb",
     "healthcare": "#059669",
@@ -421,6 +575,7 @@ _INDUSTRY_BASE_COLORS: Dict[str, str] = {
     "food":       "#ea580c",
     "creative":   "#7c3aed",
     "retail":     "#db2777",
+    "fitness":    "#f97316",
     "education":  "#0369a1",
     "consulting": "#374151",
     "other":      "#0f766e",
@@ -430,27 +585,23 @@ _PALETTE_SCHEMES = ("complement", "analogous", "monochrome")
 
 
 def _generate_palette(base_hex: str, scheme: str) -> List[str]:
-    """Return [primary, secondary, accent, text] as hex strings."""
+    """Return [primary, secondary, accent, text] hex strings."""
     h, s, l = _hex_to_hsl(base_hex)
-
     if scheme == "complement":
         primary   = base_hex
         secondary = _hsl_to_hex(h + 0.5, s, l)
         accent    = _hsl_to_hex(h, max(0.15, s - 0.2), min(0.88, l + 0.22))
         text      = _hsl_to_hex(h, max(0.08, s * 0.3), 0.14)
-
     elif scheme == "analogous":
         primary   = base_hex
         secondary = _hsl_to_hex(h + 1 / 12, s, l)
         accent    = _hsl_to_hex(h - 1 / 12, s, l)
         text      = _hsl_to_hex(h, max(0.08, s * 0.35), 0.14)
-
     else:  # monochrome
         primary   = base_hex
         secondary = _hsl_to_hex(h, max(0.0, s - 0.12), min(0.92, l + 0.28))
         accent    = _hsl_to_hex(h, s, max(0.08, l - 0.22))
         text      = _hsl_to_hex(h, max(0.08, s * 0.25), 0.12)
-
     return [primary, secondary, accent, text]
 
 
@@ -463,8 +614,9 @@ _INDUSTRY_KEYWORDS: Dict[str, List[str]] = {
     "healthcare": ["health", "medical", "care", "clinic", "hospital", "wellness", "therapy", "pharma", "dental"],
     "finance":    ["finance", "bank", "invest", "trading", "capital", "wealth", "insurance", "fund", "fintech"],
     "food":       ["food", "restaurant", "cafe", "coffee", "chef", "culinary", "bakery", "catering", "kitchen", "dining"],
-    "creative":   ["design", "creative", "art", "studio", "agency", "media", "brand", "photo", "video", "animation"],
-    "retail":     ["retail", "shop", "store", "fashion", "clothing", "boutique", "ecommerce", "apparel"],
+    "creative":   ["design", "creative", "art", "studio", "agency", "media", "photo", "video", "animation"],
+    "retail":     ["retail", "shop", "store", "fashion", "clothing", "boutique", "ecommerce"],
+    "fitness":    ["sport", "sports", "athletic", "fitness", "gym", "yoga", "running", "outdoor", "activewear", "sportswear", "apparel", "sneaker", "shoe"],
     "education":  ["education", "school", "university", "learning", "academy", "training", "course", "edtech"],
     "consulting": ["consulting", "advisory", "strategy", "management", "solutions", "services", "professional"],
 }
@@ -473,8 +625,8 @@ _INDUSTRY_KEYWORDS: Dict[str, List[str]] = {
 def _detect_industry(business_type: str) -> str:
     text = business_type.lower()
     scores = {
-        industry: sum(1 for kw in keywords if kw in text)
-        for industry, keywords in _INDUSTRY_KEYWORDS.items()
+        ind: sum(1 for kw in kws if kw in text)
+        for ind, kws in _INDUSTRY_KEYWORDS.items()
     }
     best = max(scores, key=lambda k: scores[k])
     return best if scores[best] > 0 else "other"
@@ -483,6 +635,7 @@ def _detect_industry(business_type: str) -> str:
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
 
 def _make_seed(business_name: str) -> int:
     digest = hashlib.md5(business_name.lower().strip().encode()).hexdigest()
@@ -500,14 +653,12 @@ def _xml_escape(text: str) -> str:
 
 
 def _short_tagline(business_type: str) -> str:
-    """Derive a short tagline from the actual business_type — no hardcoded strings."""
     words = business_type.split()
-    short = " ".join(words[:3])
-    return short[:30]
+    return " ".join(words[:3])[:30]
 
 
 def _icon_group(icon_name: str, color: str, size: float) -> str:
-    """Return an SVG <g> that renders the named icon at (0,0) scaled to `size`×`size`."""
+    """SVG <g> that renders a named Tabler icon at (0,0) scaled to `size`×`size`."""
     inner = _ICONS.get(icon_name, _ICONS["star"])
     scale = size / 24.0
     return (
@@ -520,62 +671,55 @@ def _icon_group(icon_name: str, color: str, size: float) -> str:
 
 
 # ---------------------------------------------------------------------------
-# SVG layouts
+# SVG layouts — text rendered as <path> outlines, no <text> or @import
 # ---------------------------------------------------------------------------
 
 def _render_centered(
     name: str,
-    tagline: str,
     icon_name: str,
     font: _FontPair,
     palette: List[str],
 ) -> str:
-    """Icon above, business name below — square-ish canvas."""
     W, H = 480, 300
-    primary, secondary, accent, text_color = palette
+    primary, _secondary, _accent, text_color = palette
     icon_size = 68.0
     cx = W / 2
-    # Icon background circle centre
     cy = H * 0.28
     icon_x = cx - icon_size / 2
     icon_y = cy - icon_size / 2
 
-    safe_name = _xml_escape(name)
-    safe_tag  = _xml_escape(tagline).upper()
+    h_font = _load_font(font.heading_file)
+
+    name_size = 30.0
+    # Vertically center the name in the space below the icon
+    name_y = cy + icon_size * 0.62 + (H - cy - icon_size * 0.62) * 0.52
+
+    name_w = _text_width(name, h_font, name_size)
+    name_paths = _text_to_paths(
+        name, h_font, name_size, cx - name_w / 2, name_y, text_color
+    )
 
     return (
         f'<svg xmlns="http://www.w3.org/2000/svg" width="{W}" height="{H}" '
         f'viewBox="0 0 {W} {H}">\n'
-        f'  <defs><style>@import url(\'{font.import_url}\');</style></defs>\n'
         f'  <rect width="{W}" height="{H}" fill="#ffffff"/>\n'
         f'  <circle cx="{cx:.1f}" cy="{cy:.1f}" r="{icon_size * 0.62:.1f}" fill="{primary}"/>\n'
         f'  <g transform="translate({icon_x:.1f},{icon_y:.1f})">'
         + _icon_group(icon_name, "#ffffff", icon_size) +
-        f"</g>\n"
-        f'  <text x="{cx:.1f}" y="{cy + icon_size * 0.62 + 38:.1f}"\n'
-        f'    text-anchor="middle" dominant-baseline="alphabetic"\n'
-        f'    font-family="\'{font.heading}\', sans-serif"\n'
-        f'    font-size="30" font-weight="700" fill="{text_color}" letter-spacing="0.5">'
-        f"{safe_name}</text>\n"
-        f'  <text x="{cx:.1f}" y="{cy + icon_size * 0.62 + 64:.1f}"\n'
-        f'    text-anchor="middle" dominant-baseline="alphabetic"\n'
-        f'    font-family="\'{font.body}\', sans-serif"\n'
-        f'    font-size="12" font-weight="400" fill="{secondary}" letter-spacing="2.5">'
-        f"{safe_tag}</text>\n"
-        f"</svg>"
+        f'</g>\n'
+        + name_paths + "\n"
+        + "</svg>"
     )
 
 
 def _render_horizontal(
     name: str,
-    tagline: str,
     icon_name: str,
     font: _FontPair,
     palette: List[str],
 ) -> str:
-    """Icon left, name + tagline right — wide canvas."""
     W, H = 520, 160
-    primary, secondary, accent, text_color = palette
+    primary, _secondary, accent, text_color = palette
     icon_size = 60.0
     pad = 30.0
     cx = pad + icon_size / 2
@@ -584,45 +728,38 @@ def _render_horizontal(
     icon_y = cy - icon_size / 2
     text_x = pad * 2 + icon_size + 8
 
-    safe_name = _xml_escape(name)
-    safe_tag  = _xml_escape(tagline).upper()
+    h_font = _load_font(font.heading_file)
+
+    name_size = 34.0
+    # Baseline that centers 34px cap height vertically in the canvas
+    name_y = cy + name_size * 0.36
+
+    name_paths = _text_to_paths(name, h_font, name_size, text_x, name_y, text_color)
 
     return (
         f'<svg xmlns="http://www.w3.org/2000/svg" width="{W}" height="{H}" '
         f'viewBox="0 0 {W} {H}">\n'
-        f'  <defs><style>@import url(\'{font.import_url}\');</style></defs>\n'
         f'  <rect width="{W}" height="{H}" fill="#ffffff"/>\n'
         f'  <circle cx="{cx:.1f}" cy="{cy:.1f}" r="{icon_size * 0.62:.1f}" fill="{primary}"/>\n'
         f'  <g transform="translate({icon_x:.1f},{icon_y:.1f})">'
         + _icon_group(icon_name, "#ffffff", icon_size) +
-        f"</g>\n"
+        f'</g>\n'
         f'  <line x1="{text_x - 10:.1f}" y1="{H * 0.18:.1f}" '
         f'x2="{text_x - 10:.1f}" y2="{H * 0.82:.1f}" '
         f'stroke="{accent}" stroke-width="1.5" opacity="0.5"/>\n'
-        f'  <text x="{text_x:.1f}" y="{cy - 6:.1f}"\n'
-        f'    text-anchor="start" dominant-baseline="alphabetic"\n'
-        f'    font-family="\'{font.heading}\', sans-serif"\n'
-        f'    font-size="34" font-weight="700" fill="{text_color}" letter-spacing="0.5">'
-        f"{safe_name}</text>\n"
-        f'  <text x="{text_x:.1f}" y="{cy + 22:.1f}"\n'
-        f'    text-anchor="start" dominant-baseline="alphabetic"\n'
-        f'    font-family="\'{font.body}\', sans-serif"\n'
-        f'    font-size="12" font-weight="400" fill="{secondary}" letter-spacing="3">'
-        f"{safe_tag}</text>\n"
-        f"</svg>"
+        + name_paths + "\n"
+        + "</svg>"
     )
 
 
 def _render_badge(
     name: str,
-    tagline: str,
     icon_name: str,
     font: _FontPair,
     palette: List[str],
 ) -> str:
-    """Contained in a rounded-rect badge — square canvas."""
     W, H = 300, 300
-    primary, secondary, accent, text_color = palette
+    primary, _secondary, _accent, text_color = palette
     pad = 22
     icon_size = 54.0
     cx = W / 2
@@ -630,13 +767,21 @@ def _render_badge(
     icon_x = cx - icon_size / 2
     icon_y = cy - icon_size / 2
 
-    safe_name = _xml_escape(name)
-    safe_tag  = _xml_escape(tagline).upper()
+    h_font = _load_font(font.heading_file)
+
+    name_size = 24.0
+    # Vertically center the name in the space below the icon
+    icon_bottom = cy + icon_size * 0.62
+    name_y = icon_bottom + (H - icon_bottom) * 0.52
+
+    name_w = _text_width(name, h_font, name_size)
+    name_paths = _text_to_paths(
+        name, h_font, name_size, cx - name_w / 2, name_y, text_color
+    )
 
     return (
         f'<svg xmlns="http://www.w3.org/2000/svg" width="{W}" height="{H}" '
         f'viewBox="0 0 {W} {H}">\n'
-        f'  <defs><style>@import url(\'{font.import_url}\');</style></defs>\n'
         f'  <rect width="{W}" height="{H}" fill="#ffffff"/>\n'
         f'  <rect x="{pad}" y="{pad}" width="{W - pad * 2}" height="{H - pad * 2}" '
         f'rx="22" fill="{primary}" opacity="0.07"/>\n'
@@ -645,23 +790,13 @@ def _render_badge(
         f'  <circle cx="{cx:.1f}" cy="{cy:.1f}" r="{icon_size * 0.62:.1f}" fill="{primary}"/>\n'
         f'  <g transform="translate({icon_x:.1f},{icon_y:.1f})">'
         + _icon_group(icon_name, "#ffffff", icon_size) +
-        f"</g>\n"
-        f'  <text x="{cx:.1f}" y="{cy + icon_size * 0.62 + 36:.1f}"\n'
-        f'    text-anchor="middle" dominant-baseline="alphabetic"\n'
-        f'    font-family="\'{font.heading}\', sans-serif"\n'
-        f'    font-size="24" font-weight="700" fill="{text_color}" letter-spacing="0.5">'
-        f"{safe_name}</text>\n"
-        f'  <text x="{cx:.1f}" y="{cy + icon_size * 0.62 + 58:.1f}"\n'
-        f'    text-anchor="middle" dominant-baseline="alphabetic"\n'
-        f'    font-family="\'{font.body}\', sans-serif"\n'
-        f'    font-size="11" font-weight="400" fill="{secondary}" letter-spacing="2.5">'
-        f"{safe_tag}</text>\n"
-        f"</svg>"
+        f'</g>\n'
+        + name_paths + "\n"
+        + "</svg>"
     )
 
 
 _LAYOUTS = ("centered", "horizontal", "badge")
-
 
 # ---------------------------------------------------------------------------
 # Public API
@@ -679,7 +814,7 @@ def generate_logo_variants(
 
     Args:
         business_name: Display name used in the logo text ("Acme Corp").
-        business_type: Free-text description ("AI tech startup focusing on...").
+        business_type: Free-text description ("AI tech startup…").
         prefs: Optional dict:
             - style: str  — "modern"|"classic"|"playful"|"minimal"|"bold"|
                            "elegant"|"tech"|"geometric"
@@ -687,11 +822,12 @@ def generate_logo_variants(
         count: Number of variants to return (default 4).
 
     Returns:
-        List[LogoVariant]  — each with .svg (bytes), .icon_name, .font_heading,
+        List[LogoVariant] — each with .svg (bytes), .icon_name, .font_heading,
         .font_body, .palette, .layout.
 
-    The function is fully deterministic: identical inputs always produce
-    identical outputs.
+    All text is rendered as SVG <path> outlines; the SVG contains no <text>
+    elements and no external font references — suitable for Illustrator, Figma,
+    print workflows, and offline viewing.
     """
     if prefs is None:
         prefs = {}
@@ -703,39 +839,30 @@ def generate_logo_variants(
     industry  = _detect_industry(business_type)
     icon_pool = _INDUSTRY_ICONS.get(industry, _INDUSTRY_ICONS["other"])
 
-    # Base color
     base_color = _INDUSTRY_BASE_COLORS[industry]
     pref_colors = prefs.get("colors", [])
     if isinstance(pref_colors, list) and pref_colors:
         candidate = pref_colors[0]
-        if (isinstance(candidate, str)
-                and candidate.startswith("#")
-                and len(candidate) == 7):
+        if isinstance(candidate, str) and candidate.startswith("#") and len(candidate) == 7:
             base_color = candidate.lower()
 
-    # Font preference
-    pref_style       = prefs.get("style", "")
-    mapped_style     = _PREF_STYLE_MAP.get(pref_style.lower(), "")
-    preferred_fonts  = [fp for fp in _FONT_PAIRS if fp.style_tag == mapped_style]
-    all_fonts        = (preferred_fonts + _FONT_PAIRS) if preferred_fonts else _FONT_PAIRS
-
-    tagline = _short_tagline(business_type)
+    pref_style      = prefs.get("style", "")
+    mapped_style    = _PREF_STYLE_MAP.get(pref_style.lower(), "")
+    preferred_fonts = [fp for fp in _FONT_PAIRS if fp.style_tag == mapped_style]
+    all_fonts       = (preferred_fonts + _FONT_PAIRS) if preferred_fonts else _FONT_PAIRS
 
     variants: List[LogoVariant] = []
-    used_icons: set  = set()
-    used_headings: set = set()
+    used_icons: set     = set()
+    used_headings: set  = set()
 
     for i in range(count):
-        # Deterministic but varied icon selection
         available_icons = [ic for ic in icon_pool if ic not in used_icons]
         if not available_icons:
             available_icons = list(icon_pool)
         icon_name = available_icons[rng.randrange(len(available_icons))]
         used_icons.add(icon_name)
 
-        # Font selection:
-        # - Variant 0: honour the style pref explicitly (preferred font first)
-        # - Variant 1+: pick from the full list, excluding already-used headings
+        # Variant 0 honours the style pref explicitly; rest cycle through all fonts
         if i == 0 and preferred_fonts:
             font_pool = preferred_fonts
         else:
@@ -745,19 +872,17 @@ def generate_logo_variants(
         font = font_pool[rng.randrange(len(font_pool))]
         used_headings.add(font.heading)
 
-        # Palette scheme cycles through the three options
         scheme  = _PALETTE_SCHEMES[i % len(_PALETTE_SCHEMES)]
         palette = _generate_palette(base_color, scheme)
 
-        # Layout cycles
         layout = _LAYOUTS[i % len(_LAYOUTS)]
 
         if layout == "centered":
-            svg_str = _render_centered(name, tagline, icon_name, font, palette)
+            svg_str = _render_centered(name, icon_name, font, palette)
         elif layout == "horizontal":
-            svg_str = _render_horizontal(name, tagline, icon_name, font, palette)
+            svg_str = _render_horizontal(name, icon_name, font, palette)
         else:
-            svg_str = _render_badge(name, tagline, icon_name, font, palette)
+            svg_str = _render_badge(name, icon_name, font, palette)
 
         variants.append(LogoVariant(
             svg=svg_str.encode("utf-8"),
