@@ -1,8 +1,11 @@
 export interface LogoVariant {
   index: number;
   palette: {
-    name: string;
     colors: string[];
+    icon: string;
+    font_heading: string;
+    font_body: string;
+    layout: string;
   };
   svg: {
     s3_key: string;
@@ -18,7 +21,7 @@ export interface FormData {
   description: string;
 }
 
-export type JobStatus = 'queued' | 'generating' | 'vectorizing' | 'exporting' | 'done' | 'error';
+export type JobStatus = 'queued' | 'processing' | 'done' | 'error';
 
 export interface JobProgress {
   status: JobStatus;
