@@ -18,13 +18,13 @@ const styles = [
   'bold', 'elegant', 'playful'
 ];
 
-const colors = [
-  { name: 'blue', class: 'bg-accent-blue' },
-  { name: 'green', class: 'bg-accent-green' },
-  { name: 'purple', class: 'bg-accent-purple' },
-  { name: 'red', class: 'bg-accent-red' },
-  { name: 'orange', class: 'bg-accent-orange' },
-  { name: 'pink', class: 'bg-accent-pink' }
+const COLOR_OPTIONS = [
+  { label: 'Orange', value: '#ea580c' },
+  { label: 'Blue',   value: '#2563eb' },
+  { label: 'Green',  value: '#16a34a' },
+  { label: 'Purple', value: '#9333ea' },
+  { label: 'Red',    value: '#dc2626' },
+  { label: 'Slate',  value: '#475569' },
 ];
 
 const LogoForm: React.FC<LogoFormProps> = ({ onBack, onSubmit }) => {
@@ -32,23 +32,11 @@ const LogoForm: React.FC<LogoFormProps> = ({ onBack, onSubmit }) => {
     businessName: '',
     industry: '',
     style: '',
-    colors: [],
+    colors: ['#ea580c'],
     description: ''
   });
 
-  const handleColorToggle = (colorName: string) => {
-    setFormData(prev => {
-      const newColors = prev.colors.includes(colorName)
-        ? prev.colors.filter(c => c !== colorName)
-        : prev.colors.length < 3
-        ? [...prev.colors, colorName]
-        : prev.colors;
-      return { ...prev, colors: newColors };
-    });
-  };
-
-  const isFormValid = formData.businessName.trim() && formData.industry && 
-                       formData.style && formData.colors.length > 0;
+  const isFormValid = formData.businessName.trim() && formData.industry && formData.style;
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -130,41 +118,59 @@ const LogoForm: React.FC<LogoFormProps> = ({ onBack, onSubmit }) => {
             </div>
           </div>
 
-          {/* Colors */}
+          {/* Color */}
           <div className="space-y-3">
-            <label className="text-sm font-medium">
-              Color Preferences * (Select up to 3)
-            </label>
-            <div className="flex gap-4">
-              {colors.map((color) => (
-                <button
-                  key={color.name}
-                  type="button"
-                  onClick={() => handleColorToggle(color.name)}
-                  className={`w-12 h-12 rounded-full ${color.class} transition-all ${
-                    formData.colors.includes(color.name)
-                      ? 'ring-4 ring-foreground ring-offset-2 ring-offset-background'
-                      : 'hover:ring-2 ring-muted-foreground ring-offset-2 ring-offset-background'
-                  }`}
-                  title={color.name}
-                />
-              ))}
+            <label className="text-sm font-medium">Brand Color *</label>
+            <div className="flex gap-3">
+              {COLOR_OPTIONS.map((color) => {
+                const selected = formData.colors[0] === color.value;
+                return (
+                  <button
+                    key={color.value}
+                    type="button"
+                    onClick={() => setFormData({ ...formData, colors: [color.value] })}
+                    className={`relative w-8 h-8 rounded-full transition-all focus:outline-none ${
+                      selected
+                        ? 'ring-2 ring-foreground ring-offset-2 ring-offset-background'
+                        : 'hover:ring-2 hover:ring-muted-foreground hover:ring-offset-2 hover:ring-offset-background'
+                    }`}
+                    style={{ backgroundColor: color.value }}
+                    title={color.label}
+                  >
+                    {selected && (
+                      <svg
+                        className="absolute inset-0 m-auto w-4 h-4"
+                        viewBox="0 0 16 16"
+                        fill="none"
+                        stroke="white"
+                        strokeWidth="2.5"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                      >
+                        <polyline points="3,8 6.5,11.5 13,4.5" />
+                      </svg>
+                    )}
+                  </button>
+                );
+              })}
             </div>
           </div>
 
-          {/* Description */}
-          <div className="space-y-2">
-            <label className="text-sm font-medium">
-              Additional Details (Optional)
-            </label>
-            <textarea
-              value={formData.description}
-              onChange={(e) => setFormData({ ...formData, description: e.target.value })}
-              placeholder="Tell us more about your brand vision..."
-              rows={4}
-              className="w-full bg-transparent border-b border-input py-3 font-light focus:outline-none focus:border-foreground transition-colors resize-none"
-            />
-          </div>
+          {/* Additional Details — hidden until LLM integration (Phase 5) */}
+          {false && (
+            <div className="space-y-2">
+              <label className="text-sm font-medium">
+                Additional Details (Optional)
+              </label>
+              <textarea
+                value={formData.description}
+                onChange={(e) => setFormData({ ...formData, description: e.target.value })}
+                placeholder="Tell us more about your brand vision..."
+                rows={4}
+                className="w-full bg-transparent border-b border-input py-3 font-light focus:outline-none focus:border-foreground transition-colors resize-none"
+              />
+            </div>
+          )}
 
           {/* Submit Button */}
           <Button

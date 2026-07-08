@@ -17,6 +17,7 @@ from __future__ import annotations
 import colorsys
 import hashlib
 import random
+import re
 import xml.etree.ElementTree as _ET
 from dataclasses import dataclass
 from pathlib import Path
@@ -310,6 +311,16 @@ _INDUSTRY_BASE_COLORS: Dict[str, str] = {
 
 _PALETTE_SCHEMES = ("complement", "analogous", "monochrome")
 
+_HEX_RE = re.compile(r'^#[0-9a-fA-F]{6}$')
+
+
+def _parse_color(colors: list) -> Optional[str]:
+    """Return the first valid 6-digit hex color from the list, or None."""
+    for c in colors:
+        if isinstance(c, str) and _HEX_RE.match(c):
+            return c.lower()
+    return None
+
 
 def _generate_palette(base_hex: str, scheme: str) -> List[str]:
     """Return [primary, secondary, accent, text] hex strings."""
@@ -580,12 +591,8 @@ def generate_logo_variants(
         industry = _detect_industry(business_type)
     icon_pool = _INDUSTRY_ICONS.get(industry, _INDUSTRY_ICONS["other"])
 
-    base_color = _INDUSTRY_BASE_COLORS[industry]
-    pref_colors = prefs.get("colors", [])
-    if isinstance(pref_colors, list) and pref_colors:
-        candidate = pref_colors[0]
-        if isinstance(candidate, str) and candidate.startswith("#") and len(candidate) == 7:
-            base_color = candidate.lower()
+    user_color = _parse_color(prefs.get("colors", []))
+    base_color = user_color or _INDUSTRY_BASE_COLORS[industry]
 
     pref_style      = prefs.get("style", "")
     mapped_style    = _PREF_STYLE_MAP.get(pref_style.lower(), "")

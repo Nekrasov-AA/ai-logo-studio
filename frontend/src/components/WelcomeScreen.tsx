@@ -1,5 +1,5 @@
-import React from 'react';
-import { Button } from '@/components/ui/button';
+import React from "react";
+import { Button } from "@/components/ui/button";
 
 interface WelcomeScreenProps {
   onGetStarted: () => void;
@@ -7,9 +7,9 @@ interface WelcomeScreenProps {
 
 const WelcomeScreen: React.FC<WelcomeScreenProps> = ({ onGetStarted }) => {
   const stats = [
-    { value: '30s', label: 'Average generation time' },
-    { value: '6', label: 'Unique variations' },
-    { value: 'SVG', label: 'Scalable format' }
+    // { value: '30s', label: 'Average generation time' },
+    // { value: '6', label: 'Unique variations' },
+    // { value: 'SVG', label: 'Scalable format' }
   ];
 
   return (
@@ -17,15 +17,15 @@ const WelcomeScreen: React.FC<WelcomeScreenProps> = ({ onGetStarted }) => {
       <div className="max-w-4xl w-full text-center space-y-12">
         <div className="space-y-6">
           <h2 className="text-5xl lg:text-6xl font-light tracking-tight">
-            AI-powered logo generation in seconds
+            Logo and brand kit for your business
           </h2>
           <p className="text-xl text-muted-foreground font-light max-w-2xl mx-auto">
-            Create professional logos instantly with our AI technology. 
-            No design skills required, just describe your vision.
+            Generate 4 logo variants with matching color palette and typography.
+            Download as SVG — works in Illustrator, Figma, and anywhere else.
           </p>
         </div>
 
-        <Button 
+        <Button
           onClick={onGetStarted}
           size="lg"
           className="px-12 py-6 text-lg font-medium"
@@ -38,7 +38,9 @@ const WelcomeScreen: React.FC<WelcomeScreenProps> = ({ onGetStarted }) => {
             {stats.map((stat, index) => (
               <div key={index} className="space-y-2">
                 <div className="text-4xl font-light">{stat.value}</div>
-                <div className="text-sm text-muted-foreground">{stat.label}</div>
+                <div className="text-sm text-muted-foreground">
+                  {stat.label}
+                </div>
               </div>
             ))}
           </div>
