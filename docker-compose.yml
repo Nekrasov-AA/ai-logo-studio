@@ -1,13 +1,4 @@
 services:
-  zookeeper:
-    image: confluentinc/cp-zookeeper:7.4.0
-    container_name: zookeeper
-    environment:
-      ZOOKEEPER_CLIENT_PORT: 2181
-      ZOOKEEPER_TICK_TIME: 2000
-    ports:
-      - "2181:2181"
-
   db:
     image: postgres:16
     container_name: db
@@ -25,54 +16,6 @@ services:
       timeout: 3s
       retries: 10
 
-  kafka:
-    image: confluentinc/cp-kafka:7.4.0
-    container_name: kafka
-    environment:
-      KAFKA_BROKER_ID: 1
-      KAFKA_ZOOKEEPER_CONNECT: 'zookeeper:2181'
-      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_INTERNAL:PLAINTEXT
-      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://localhost:29092,PLAINTEXT_INTERNAL://kafka:9092
-      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
-      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
-      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
-      KAFKA_AUTO_CREATE_TOPICS_ENABLE: 'true'
-    ports:
-      - "29092:29092"
-    depends_on:
-      - zookeeper
-    healthcheck:
-      test: ["CMD", "kafka-topics", "--bootstrap-server", "kafka:9092", "--list"]
-      interval: 10s
-      timeout: 5s
-      retries: 20
-
-  kafdrop:
-    image: obsidiandynamics/kafdrop:3.30.0
-    container_name: kafdrop
-    environment:
-      KAFKA_BROKERCONNECT: kafka:9092
-    ports:
-      - "19000:9000"
-    depends_on:
-      - kafka
-
-  localstack:
-    image: localstack/localstack:3.8
-    container_name: localstack
-    environment:
-      - SERVICES=s3
-      - AWS_DEFAULT_REGION=eu-central-1
-    ports:
-      - "4566:4566"
-    volumes:
-      - localstack_data:/var/lib/localstack
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:4566/_localstack/health"]
-      interval: 10s
-      timeout: 5s
-      retries: 10
-
   backend:
     build: ./backend
     container_name: backend
@@ -80,20 +23,8 @@ services:
       - "8000:8000"
     environment:
       - DATABASE_URL=postgresql+asyncpg://app:app@db:5432/appdb
-      - KAFKA_BOOTSTRAP_SERVERS=kafka:9092
-      - S3_ENDPOINT_URL=http://localstack:4566
-      - AWS_REGION=eu-central-1
-      - AWS_ACCESS_KEY_ID=test
-      - AWS_SECRET_ACCESS_KEY=test
-      - S3_BUCKET=ai-logo-studio
-      - S3_PUBLIC_BASE=http://localhost:4566 # to open links in the browser
-    restart: unless-stopped
     depends_on:
-      localstack:
-        condition: service_healthy
       db:
-        condition: service_healthy
-      kafka:
         condition: service_healthy
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0) if urllib.request.urlopen('http://localhost:8000/health').getcode()==200 else sys.exit(1)"]
@@ -101,9 +32,8 @@ services:
       timeout: 3s
       retries: 10
 
-
   frontend:
-    build: 
+    build:
       context: ./frontend
       dockerfile: Dockerfile.dev
     container_name: frontend
@@ -118,61 +48,5 @@ services:
       backend:
         condition: service_healthy
 
-  worker:
-    build: ./worker
-    container_name: worker
-    depends_on:
-      localstack:
-        condition: service_healthy
-      kafka:
-        condition: service_healthy
-      db:
-        condition: service_healthy
-    environment:
-      - KAFKA_BOOTSTRAP_SERVERS=kafka:9092
-      - DATABASE_URL=postgresql+asyncpg://app:app@db:5432/appdb
-      - S3_ENDPOINT_URL=http://localstack:4566
-      - AWS_REGION=eu-central-1
-      - AWS_ACCESS_KEY_ID=test
-      - AWS_SECRET_ACCESS_KEY=test
-      - S3_BUCKET=ai-logo-studio
-      # AI Configuration
-      - OPENAI_API_KEY=${OPENAI_API_KEY:-demo-key}
-      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-demo-key}
-      - AI_MODEL=${AI_MODEL:-gpt-4o-mini}
-      - AI_FALLBACK_ENABLED=${AI_FALLBACK_ENABLED:-true}
-      - AI_TIMEOUT=${AI_TIMEOUT:-30}
-
-  # Monitoring Stack for portfolio
-  prometheus:
-    image: prom/prometheus:v2.40.0
-    container_name: prometheus
-    ports:
-      - "9090:9090"
-    volumes:
-      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml
-      - prometheus_data:/prometheus
-    command:
-      - '--config.file=/etc/prometheus/prometheus.yml'
-      - '--storage.tsdb.path=/prometheus'
-      - '--web.console.libraries=/etc/prometheus/console_libraries'
-      - '--web.console.templates=/etc/prometheus/consoles'
-
-  grafana:
-    image: grafana/grafana:9.3.0
-    container_name: grafana
-    ports:
-      - "3001:3000"
-    environment:
-      - GF_SECURITY_ADMIN_PASSWORD=admin
-      - GF_SECURITY_ADMIN_USER=admin
-    volumes:
-      - grafana_data:/var/lib/grafana
-      - ./monitoring/grafana/dashboards:/etc/grafana/provisioning/dashboards
-      - ./monitoring/grafana/datasources:/etc/grafana/provisioning/datasources
-
 volumes:
   db_data:
-  localstack_data:
-  prometheus_data:
-  grafana_data:

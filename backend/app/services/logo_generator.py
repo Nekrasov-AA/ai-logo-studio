@@ -266,7 +266,9 @@ _ICONS: Dict[str, str] = {
     ),
     "coffee": (
         '<path d="M3 14c.83 2.87 3.33 5 5 5h6c1.67 0 4.17-2.13 5-5"/>'
-        '<path d="M8 5v3M12 3v5M16 5v3"/>'
+        '<path d="M8 11c.5-1-.5-2 0-3c.5-1-.5-2 0-3"/>'
+        '<path d="M12 11c.5-1-.5-2 0-3c.5-1-.5-2 0-3"/>'
+        '<path d="M16 11c.5-1-.5-2 0-3c.5-1-.5-2 0-3"/>'
         '<rect x="2" y="13" width="20" height="2" rx="1"/>'
         '<path d="M20 15v2a2 2 0 0 0 2 2"/>'
     ),
@@ -278,16 +280,18 @@ _ICONS: Dict[str, str] = {
         '<path d="M8 10.5A3.5 3.5 0 0 1 12 7"/>'
     ),
     "pizza": (
-        '<path d="M12 21a9 9 0 0 0 9-9"/>'
-        '<path d="M3 12a9 9 0 0 1 9-9"/>'
-        '<path d="M12 3v9h9"/>'
-        '<circle cx="11" cy="16" r="1" fill="currentColor" stroke="none"/>'
-        '<circle cx="17" cy="11" r="1" fill="currentColor" stroke="none"/>'
+        '<circle cx="12" cy="12" r="9"/>'
+        '<path d="M12 3v9"/>'
+        '<path d="M12 12h9"/>'
+        '<circle cx="9.5" cy="15.5" r="1" fill="currentColor" stroke="none"/>'
+        '<circle cx="15.5" cy="9.5" r="1" fill="currentColor" stroke="none"/>'
     ),
     "apple": (
-        '<path d="M12 20a8 8 0 1 0 0-16 8 8 0 0 0 0 16z"/>'
-        '<path d="M12 4c0-1.1.5-2 1.2-2.4"/>'
-        '<path d="M8 12c0-2.2 1.8-4 4-4s4 1.8 4 4"/>'
+        '<path d="M12 20C7 20 4 16 4 12C4 8 7 5 10 5'
+        'C11 5 11.5 6.5 12 7.5C12.5 6.5 13 5 14 5'
+        'C17 5 20 8 20 12C20 16 17 20 12 20z"/>'
+        '<path d="M12 5V3"/>'
+        '<path d="M12 3C13.5 1.5 15.5 2 15 4"/>'
     ),
 
     # ---- creative ----
@@ -684,15 +688,19 @@ def _render_centered(
     primary, _secondary, _accent, text_color = palette
     icon_size = 68.0
     cx = W / 2
-    cy = H * 0.28
+    name_size = 30.0
+
+    circle_r = icon_size * 0.62
+    cap_h = name_size * 0.72
+    gap = 20.0
+    total_h = circle_r * 2 + gap + cap_h
+    cy = (H - total_h) / 2 + circle_r
+    name_y = cy + circle_r + gap + cap_h
+
     icon_x = cx - icon_size / 2
     icon_y = cy - icon_size / 2
 
     h_font = _load_font(font.heading_file)
-
-    name_size = 30.0
-    # Vertically center the name in the space below the icon
-    name_y = cy + icon_size * 0.62 + (H - cy - icon_size * 0.62) * 0.52
 
     name_w = _text_width(name, h_font, name_size)
     name_paths = _text_to_paths(
@@ -763,16 +771,20 @@ def _render_badge(
     pad = 22
     icon_size = 54.0
     cx = W / 2
-    cy = H * 0.34
+    name_size = 24.0
+
+    circle_r = icon_size * 0.62
+    cap_h = name_size * 0.72
+    gap = 16.0
+    inner_h = float(H - 2 * pad)
+    total_h = circle_r * 2 + gap + cap_h
+    cy = pad + (inner_h - total_h) / 2 + circle_r
+    name_y = cy + circle_r + gap + cap_h
+
     icon_x = cx - icon_size / 2
     icon_y = cy - icon_size / 2
 
     h_font = _load_font(font.heading_file)
-
-    name_size = 24.0
-    # Vertically center the name in the space below the icon
-    icon_bottom = cy + icon_size * 0.62
-    name_y = icon_bottom + (H - icon_bottom) * 0.52
 
     name_w = _text_width(name, h_font, name_size)
     name_paths = _text_to_paths(
@@ -832,11 +844,15 @@ def generate_logo_variants(
     if prefs is None:
         prefs = {}
 
-    name = (business_name.strip() or "Brand")[:60]
+    name = ((prefs.get("business_name") or business_name).strip() or "Brand")[:60]
     seed = _make_seed(name)
     rng  = random.Random(seed)
 
-    industry  = _detect_industry(business_type)
+    pref_industry = prefs.get("industry", "")
+    if pref_industry and pref_industry in _INDUSTRY_ICONS:
+        industry = pref_industry
+    else:
+        industry = _detect_industry(business_type)
     icon_pool = _INDUSTRY_ICONS.get(industry, _INDUSTRY_ICONS["other"])
 
     base_color = _INDUSTRY_BASE_COLORS[industry]

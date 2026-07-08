@@ -51,8 +51,9 @@ const Index = () => {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          business_type: formData.businessName,
+          business_type: formData.industry || formData.businessName,
           preferences: {
+            business_name: formData.businessName,
             industry: formData.industry,
             style: formData.style,
             colors: formData.colors,
